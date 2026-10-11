@@ -25,7 +25,7 @@ namespace LineSensor8Pixel {
     let statusLedIC6Outputs = 0x0;
     let statusLedIC7Outputs = 0x0;
 
-    let dacICAddr = 0x60;
+    let dacICAddr = 0x62;
     let dacNonVolatileRegisters = 0x10;
     let dac0OutputRegister = 0x00;
     let dac1OutputRegister = 0x01;
