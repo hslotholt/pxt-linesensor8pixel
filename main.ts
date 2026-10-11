@@ -9,6 +9,8 @@
 namespace LineSensor8Pixel {
     let statusLedIC7Addr = 0x20;
     let statusLedIC6Addr = 0x21;
+    let tca9534OutputRegister = 0x01;
+    let tca9534ControlRegister = 0x03;
     let statusLedIC6Outputs = 0x0;
     let statusLedIC7Outputs = 0x0;
 
@@ -21,21 +23,24 @@ namespace LineSensor8Pixel {
         Off = 2
     }
 
+    function tca9534WriteRegister(addr: number, reg: number, value: number): void {
+        let b = pins.createBuffer(2);
+        b[0] = reg & 0xff;
+        b[1] = value & 0xff;
+        pins.i2cWriteBuffer(addr, b);
+    }
+
     //% blockID="linesensor8Pixel_init"
     //% block="Initialiser LineSensor8Pixel"
     export function initLinesensor8Pixel(): void {
         // Setup status led's
         // Initialize the TCA9534 I/O expanders with zeros in output registers
-        pins.i2cWriteNumber(statusLedIC6Addr, 0x01, NumberFormat.UInt8BE, true);
-        pins.i2cWriteNumber(statusLedIC6Addr, statusLedIC6Outputs, NumberFormat.UInt8BE, false);
-        pins.i2cWriteNumber(statusLedIC7Addr, 0x01, NumberFormat.UInt8BE, true);
-        pins.i2cWriteNumber(statusLedIC7Addr, statusLedIC7Outputs, NumberFormat.UInt8BE, false);
+        tca9534WriteRegister(statusLedIC6Addr, tca9534OutputRegister, statusLedIC6Outputs);
+        tca9534WriteRegister(statusLedIC7Addr, tca9534OutputRegister, statusLedIC7Outputs);
 
         // Initialize TCA9534's pins as outputs.
-        pins.i2cWriteNumber(statusLedIC6Addr, 0x03, NumberFormat.UInt8BE, true);
-        pins.i2cWriteNumber(statusLedIC6Addr, 0x0, NumberFormat.UInt8BE, false);
-        pins.i2cWriteNumber(statusLedIC7Addr, 0x03, NumberFormat.UInt8BE, true);
-        pins.i2cWriteNumber(statusLedIC7Addr, 0x0, NumberFormat.UInt8BE, false);
+        tca9534WriteRegister(statusLedIC6Addr, tca9534ControlRegister, 0x00);
+        tca9534WriteRegister(statusLedIC7Addr, tca9534ControlRegister, 0x00);
     }
 
     //% blockID="linesensor8Pixel_setStatusLed"
@@ -61,13 +66,11 @@ namespace LineSensor8Pixel {
         }
         if(ic6Output != statusLedIC6Outputs) {
             statusLedIC6Outputs = ic6Output;
-            pins.i2cWriteNumber(statusLedIC6Addr, 0x01, NumberFormat.UInt8BE, true);
-            pins.i2cWriteNumber(statusLedIC6Addr, statusLedIC6Outputs, NumberFormat.UInt8BE, false);
+            tca9534WriteRegister(statusLedIC6Addr, tca9534OutputRegister, statusLedIC6Outputs);
         }
         if(ic7Output != statusLedIC7Outputs) {
             statusLedIC7Outputs = ic7Output;
-            pins.i2cWriteNumber(statusLedIC7Addr, 0x01, NumberFormat.UInt8BE, true);
-            pins.i2cWriteNumber(statusLedIC7Addr, statusLedIC7Outputs, NumberFormat.UInt8BE, false);
+            tca9534WriteRegister(statusLedIC7Addr, tca9534OutputRegister, statusLedIC7Outputs);
         }
     }
 }
