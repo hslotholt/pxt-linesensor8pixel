@@ -52,16 +52,16 @@ namespace LineSensor8Pixel {
         let ledBit = 1 << (led - 1);
         switch (color) {
             case LedColor.Red:
-                ic6Output |= ledBit;
-                ic7Output &= ~ledBit;
+                ic6Output |= (ledBit & 0xff);
+                ic7Output &= ~(ledBit & 0xff);
                 break;
             case LedColor.Green:
-                ic6Output &= ~ledBit;
-                ic7Output |= ledBit;
+                ic6Output &= (~ledBit & 0xff);
+                ic7Output |= (ledBit & 0xff);
                 break;
             case LedColor.Off:
-                ic6Output &= ~ledBit;
-                ic7Output &= ~ledBit;
+                ic6Output &= (~ledBit & 0xff);
+                ic7Output &= (~ledBit & 0xff);
                 break;
         }
         if(ic6Output != statusLedIC6Outputs) {
