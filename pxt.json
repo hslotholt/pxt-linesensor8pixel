@@ -1,0 +1,10 @@
+{
+  "name": "pxt-linesensor8pixel",
+  "version": "0.1.0",
+  "description": "8 pixel linesensor",
+  "license": "MIT",
+  "dependencies": { "core": "*" },
+  "files": ["main.ts"],
+  "public": true,
+  "supportedTargets": ["microbit"]
+}
