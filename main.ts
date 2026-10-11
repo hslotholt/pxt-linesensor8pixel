@@ -49,7 +49,7 @@ namespace LineSensor8Pixel {
     export function setStatusLed(led: number, color: LedColor): void {
         let ic6Output = statusLedIC6Outputs;
         let ic7Output = statusLedIC7Outputs;
-        let ledBit = 1 << led;
+        let ledBit = 1 << (led - 1);
         switch (color) {
             case LedColor.Red:
                 ic6Output |= ledBit;
