@@ -1,10 +1,23 @@
 {
-  "name": "pxt-linesensor8pixel",
-  "version": "0.1.2",
-  "description": "8 pixel linesensor",
-  "license": "MIT",
-  "dependencies": { "core": "*" },
-  "files": ["main.ts"],
-  "public": true,
-  "supportedTargets": ["microbit"]
+    "name": "pxt-linesensor8pixel",
+    "version": "0.1.2",
+    "description": "8 pixel linesensor",
+    "license": "MIT",
+    "dependencies": {
+        "core": "*",
+        "microphone": "*"
+    },
+    "files": [
+        "main.ts",
+        "test.ts"
+    ],
+    "public": true,
+    "targetVersions": {
+        "target": "9.0.12",
+        "targetId": "microbit"
+    },
+    "supportedTargets": [
+        "microbit"
+    ],
+    "preferredEditor": "tsprj"
 }
