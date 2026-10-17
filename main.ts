@@ -42,14 +42,26 @@ namespace LineSensor8Pixel {
 
     let LowPassDepth = 2;
     let MinContrast = 75 * LowPassDepth;
-    let whiteLineThreshold = 750;
-    let blackLineThreshold = 200;
     let lineData = [0, 0, 0, 0, 0, 0, 0, 0];
     let linePos = 0;
     //let sensorGain = [15620, 14077, 13980, 13727, 13431, 12835, 13275, 13834];
     //let sensorOffset = [-11, -22, -26, -26, -16, -29, -18, -14];
-    // background around 700
-    // Factor between groups should be in the area 1.1 - 1.15
+
+    export enum LedColor {
+        //% block="rød"
+        Red = 0,
+        //% block="grøn"
+        Green = 1,
+        //% block="slukket"
+        Off = 2
+    }
+
+    export enum LineColor {
+        //% block="sort"
+        Black = 0,
+        //% block="hvid"
+        White = 1
+    }
 
     export enum LineData {
         //% block="Baggrund"
@@ -64,38 +76,29 @@ namespace LineSensor8Pixel {
         //% block="Linje fundet"
         LineFound = 1,
         //% block="Udgrening"
-        Junction = 4,
+        Junction = 2,
         //% block="Udgrening venstre"
-        JunctionLeft = 8,
+        JunctionLeft = 4,
         //% block="Udgrening højre"
-        JuntionRight = 16,
+        JuntionRight = 8,
         //% block="Hvid udgrening venstre"
-        WhiteJunctionLeft = 32,
+        WhiteJunctionLeft = 16,
         //% block="Hvid udgrening højre"
-        WhiteJunctionRight = 64,
+        WhiteJunctionRight = 32,
         //% block="Sort udgrening venstre"
-        BlackJunctionLeft = 128,
+        BlackJunctionLeft = 64,
         //% block="Sort udgrening højre"
-        BlackJunctionRight = 256,
+        BlackJunctionRight = 128,
         //% block="Kryds"
-        Cross = 512,
+        Cross = 256,
         //% block="Krydser hvid"
-        WhiteLineCrossing = 1024,
+        WhiteLineCrossing = 512,
         //% block="Krydser sort"
-        BlackLineCrossing = 2048,
-        Unknown = 4096
+        BlackLineCrossing = 1024,
     }
 
-    let lineStatus = LineStatus.Unknown;
+    let lineStatus = LineStatus.NoLine;
 
-    export enum LedColor {
-        //% block="rød"
-        Red = 0,
-        //% block="grøn"
-        Green = 1,
-        //% block="slukket"
-        Off = 2
-    }
 /*
     export enum Intensity {
         //% block="lysere"
@@ -104,12 +107,6 @@ namespace LineSensor8Pixel {
         Darker = 1
     }
 */
-    export enum LineColor {
-        //% block="sort"
-        Black = 0,
-        //% block="hvid"
-        White = 1
-    }
 /*
     let blackIntensity = Intensity.Darker;
     let whiteIntensity = Intensity.Lighter;
@@ -317,173 +314,6 @@ namespace LineSensor8Pixel {
             tca9534WriteRegister(statusLedIC7Addr, tca9534OutputRegister, statusLedIC7Outputs);
         }
     }
-/*
-    export function sortSensorData(data: number[]): {sorted: number[], sortedIndex: number[]}
-    {
-        let sortedSensorData = [Infinity, Infinity, Infinity, Infinity, Infinity, Infinity, Infinity, Infinity];
-        let diodeToSortedIndex = [-1, -1, -1, -1, -1, -1, -1, -1];
-        for(let i = 0; i < 8; i++) {
-            let v = data[i];
-            for(let j = 0; j < 8; j++) {
-                if (sortedSensorData[j] > v) {
-                    sortedSensorData.removeAt(sortedSensorData.length - 1);
-                    sortedSensorData.insertAt(j, v);
-                    diodeToSortedIndex.removeAt(diodeToSortedIndex.length - 1);
-                    diodeToSortedIndex.insertAt(j, i);
-                    break;
-                }
-            }
-        }
-        return {sorted: sortedSensorData, sortedIndex: diodeToSortedIndex};
-    }
-
-    function calcMean(data: number[], incl: number, excl: number): number
-    {
-        let avg = 0;
-        for (let i = incl; i < excl; i++) avg += data[i];
-        avg /= (excl - incl);
-        return avg;
-    }
-
-    function calcGroupVarianceSquared(data: number[], incl: number, excl: number): number {
-        let varianceSquared = 0;
-        let avg = calcMean(data, incl, excl);
-        for(let i = incl; i< excl; i++)
-        {
-            let d = data[i] - avg;
-            varianceSquared += d * d;
-        }
-        return varianceSquared;
-    }
-
-    export function groupData(data: number[]): {grp2Start: number, grp3Start: number}
-    {
-        let lowestError = Infinity;
-        let bestGrp2Start = -1;
-        let bestGrp3Start = -1;
-        for(let grp2Start = 1; grp2Start < data.length - 1; grp2Start++) {
-            for(let grp3Start = grp2Start + 1; grp3Start < data.length; grp3Start++) {
-                let error =
-                    calcGroupVarianceSquared(data, 0, grp2Start) +
-                    calcGroupVarianceSquared(data, grp2Start, grp3Start) +
-                    calcGroupVarianceSquared(data, grp3Start, data.length);
-                if(error < lowestError)
-                {
-                    lowestError = error;
-                    bestGrp2Start = grp2Start;
-                    bestGrp3Start = grp3Start;
-                }
-            }
-        }
-        return {grp2Start: bestGrp2Start, grp3Start: bestGrp3Start};
-    }
-
-    function evaluateGroups(data: number[], grp: {grp2Start: number, grp3Start: number}): { grp2Start: number, grp3Start: number }
-    {
-        let meanGrp1 = calcMean(data, 0, grp.grp2Start);
-        let meanGrp2 = calcMean(data, grp.grp2Start, grp.grp3Start);
-        let meanGrp3 = calcMean(data, grp.grp3Start, data.length);
-
-        serial.writeLine("M1: " + meanGrp1 + " M2: " + meanGrp2 + " M3: " + meanGrp3);
-
-        let diffGrp21 = meanGrp2 - meanGrp1;
-        let diffGrp32 = meanGrp3 - meanGrp2;
-        let meanFactor12 = meanGrp2 / meanGrp1;
-        let meanFactor32 = meanGrp3 / meanGrp2;
-
-        if (diffGrp21 > minMeanDifferenceBetweenGroups && 
-            diffGrp32 > minMeanDifferenceBetweenGroups &&
-            meanFactor12 > minFactorBetweenGroups &&
-            meanFactor32 > minFactorBetweenGroups)
-        {
-            // We have three groups
-            return grp;
-        }
-
-        // We know that we have at most two groups
-        // It will always be the middle group which we join with one of the other groups
-        // We join it with the group closest to the middle group
-        let groupDivider = 0;
-        let meanLow = 0;
-        let meanHigh = 0;
-        if(diffGrp21 > diffGrp32)
-        {
-            groupDivider = grp.grp2Start;
-            meanLow = meanGrp1;
-            meanHigh = calcMean(data, groupDivider, 8);
-        }
-        else 
-        {
-            groupDivider = grp.grp3Start;
-            meanLow = calcMean(data, 0, groupDivider);
-            meanHigh = meanGrp3;
-        }
-
-        serial.writeLine("ML: " + meanLow + " MH: " + meanHigh);
-        if((meanHigh - meanLow) > minMeanDifferenceBetweenGroups &&
-        (meanHigh / meanLow) > minFactorBetweenGroups)
-        {
-            // We have two groups
-            return {grp2Start: groupDivider, grp3Start: 8};
-        }
-        // We only have one group
-        return {grp2Start: 8, grp3Start: 8};
-    }
-
-    function evaluateData(data: number[])
-    {
-        let sortedData = sortSensorData(data);
-        let initialGroups = groupData(sortedData.sorted);
-        let groups = evaluateGroups(sortedData.sorted, initialGroups);
-
-        let str = "SensorData: ";
-        for (let i = 0; i < sensorData.length; i++) str += sensorData[i] + " ";
-        serial.writeLine(str);
-
-        str = "Sorted: ";
-        for(let i = 0; i < sortedData.sortedIndex.length; i++) str += sortedData.sortedIndex[i] + " ";
-        serial.writeLine(str);
-        serial.writeLine("Initial: " + initialGroups.grp2Start + " - " + initialGroups.grp3Start);
-        serial.writeLine("Groups: " + groups.grp2Start + " - " + groups.grp3Start);
-
-        lineData.fill(0);
-        lineStatus = LineStatus.NoLine;
-        if(groups.grp2Start == 8) {
-            // No line found
-            return;
-        }
-
-        let group1 = (blackIntensity == Intensity.Darker ? LineStatusColor.Black : LineStatusColor.Background);
-        let group2 = (group1 == LineStatusColor.Background ? LineStatusColor.Black :
-            (whiteIntensity == Intensity.Lighter ? LineStatusColor.Background : LineStatusColor.White));
-        let group3 = (group2 == LineStatusColor.White ? LineStatusColor.Background : LineStatusColor.White);
-
-        if(groups.grp3Start == -1) {
-            // One line color found
-            if(searchLineColor == LineColor.White) {
-                group1 = (whiteIntensity == Intensity.Lighter ? LineStatusColor.Background : LineStatusColor.White);
-                group2 = (group1 == LineStatusColor.Background ? LineStatusColor.White : LineStatusColor.Background);
-                lineStatus = LineStatus.WhiteLine;
-            }
-            else {
-                group1 = (blackIntensity == Intensity.Darker ? LineStatusColor.Black : LineStatusColor.Background);
-                group2 = (group1 == LineStatusColor.Background ? LineStatusColor.Black : LineStatusColor.Background);
-                lineStatus = LineStatus.BlackLine;
-            }
-        }
-        else lineStatus = LineStatus.WhiteAndBlackLine;
-
-        for(let i = 0; i < groups.grp2Start; i++) {
-            lineData[sortedData.sortedIndex[i]] = group1;
-        }
-        for (let i = groups.grp2Start; i < groups.grp3Start; i++) {
-            lineData[sortedData.sortedIndex[i]] = group2;
-        }
-        for (let i = groups.grp3Start; i < 8; i++) {
-            lineData[sortedData.sortedIndex[i]] = group3;
-        }
-    }
-*/
 
     // Returns a value in the range [-100;100]
     function calcWeigthedLinePos(data: number[], line: number[]) : number {
@@ -491,11 +321,11 @@ namespace LineSensor8Pixel {
         let sumw = 0;
         for(let i = 0; i < 8; i++) {
             if(line[i] != LineData.Background) {
-                sum += line[i];
-                sumw += line[i] * (3.5 - i);
+                sum += data[i];
+                sumw += data[i] * (3.5 - i);
             }
         }
-        return Math.round((sumw / sum) * 12.5);
+        return Math.round((sumw / sum) * 28.6);
     }
 
     function threshold(data: number[]): number[] {
@@ -512,11 +342,11 @@ namespace LineSensor8Pixel {
         let median = (maxVal - minVal) / 2 + minVal;
         let threshold = Math.max(mean, median);
 
-        serial.writeLine("Range: " + minVal + " - " + maxVal + " mean: " + mean + " median: " + median + " threshold: " + threshold);
+//        serial.writeLine("Range: " + minVal + " - " + maxVal + " mean: " + mean + " median: " + median + " threshold: " + threshold);
 
         let line = [0, 0, 0, 0, 0, 0, 0, 0];
         if (minVal + MinContrast > threshold) {
-            serial.writeLine("No contrast");
+//            serial.writeLine("No contrast");
             lineStatus = LineStatus.NoLine;
             return line;
         }
@@ -567,47 +397,25 @@ namespace LineSensor8Pixel {
             setIRLedCurrent(0);
         }
         let data = [0, 0, 0, 0, 0, 0, 0, 0];
-        let str = "Sensor";
+//        let str = "Sensor";
         for (let ch = 0; ch < 8; ch++) {
             let val = foreground[ch] - background[ch];
             if(val < 0) val = 0;
             data[ch] = val;
-            str += " : " + val;
-//            sensorData[ch] += sensorOffset[ch];
-//            if(sensorData[ch] < 0) sensorData[ch] = 0;
-//            sensorData[ch] *= sensorGain[ch];
-//           sensorData[ch] >>= 10;
+//            str += " : " + val;
         }
-        serial.writeLine(str);
+//        serial.writeLine(str);
 
         equalize(data);
-        str = "Equalized";
-        for(let i = 0; i < 8; i++) str += " : " + data[i];
-        serial.writeLine(str);
+//        str = "Equalized";
+//        for(let i = 0; i < 8; i++) str += " : " + data[i];
+//        serial.writeLine(str);
         lineData = threshold(data);
         updateStatusLeds(lineData);
         linePos = calcWeigthedLinePos(data, lineData);
     }
 
 /*
-    //% blockID="linesensor8Pixel_getSensorData"
-    //% block="Sensor data"
-    export function getSensorData(): number[] {
-        return sensorData;
-    }
-
-    //% blockID="linesensor8Pixel_getLowestRawValue"
-    //% block="Lavest rå sensor værdi"
-    export function getLowestRawValue(): number {
-        return lowestRawValue;
-    }
-
-    //% blockID="linesensor8Pixel_getHighestRawValue"
-    //% block="Højeste rå sensor værdi"
-    export function getHighestRawValue(): number {
-        return highestRawValue;
-    }
-
     function readSensorLowPass(count: number): number[] {
         let lowPass = [0, 0, 0, 0, 0, 0, 0, 0];
         for(let i = 0; i < count; i++) {
