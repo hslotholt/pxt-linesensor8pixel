@@ -266,7 +266,7 @@ namespace LineSensor8Pixel {
     //% block="Sæt lavpasfilter dybde $depth"
     export function setLowPassDepth(depth: number): void {
         MinContrast /= LowPassDepth;
-        LowPassDepth = Math.round(depth);
+        LowPassDepth = Math.max(1, Math.round(depth));
         MinContrast = Math.round(MinContrast * LowPassDepth);
     }
 
@@ -274,6 +274,12 @@ namespace LineSensor8Pixel {
     //% block="Sæt min linje kontrast $contrast"
     export function setMinThreshold(contrast: number): void {
         MinContrast = contrast * LowPassDepth;
+    }
+
+    //% blockId="linesensor8Pixel_hasLine"
+    //% block="linje fundet?"
+    export function hasLine(): boolean {
+        return (lineStatus & LineStatus.LineFound) != 0;
     }
 
     //% blockID="linesensor8Pixel_getLineStatus"
@@ -325,7 +331,7 @@ namespace LineSensor8Pixel {
                 sumw += data[i] * (3.5 - i);
             }
         }
-        if (sum == 0) return 0;
+        if (sum <= 0) return 0;
         return Math.round((sumw / sum) * 28.6);
     }
 
@@ -414,7 +420,7 @@ namespace LineSensor8Pixel {
         lineData = threshold(data);
         updateStatusLeds(lineData);
         // Only update linePos if we have found a line, otherwise keep the current value
-        if (lineStatus | LineStatus.LineFound) linePos = calcWeigthedLinePos(data, lineData);
+        if ((lineStatus & LineStatus.LineFound) != 0) linePos = calcWeigthedLinePos(data, lineData);
     }
 
 /*
