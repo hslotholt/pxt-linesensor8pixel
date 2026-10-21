@@ -367,7 +367,7 @@ namespace LineSensor8Pixel {
         }
         if(searchLineColor == LineColor.Black) {
             for(let i = 0; i < 8; i++) {
-                data[i] = (maxVal - minVal) - data[i];
+                data[i] = maxVal - data[i];
             }
         }
     }
@@ -412,7 +412,8 @@ namespace LineSensor8Pixel {
 //        serial.writeLine(str);
         lineData = threshold(data);
         updateStatusLeds(lineData);
-        linePos = calcWeigthedLinePos(data, lineData);
+        // Only update linePos if we have found a line, otherwise keep the current value
+        if (lineStatus | LineStatus.LineFound) linePos = calcWeigthedLinePos(data, lineData);
     }
 
 /*
