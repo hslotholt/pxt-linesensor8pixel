@@ -325,6 +325,7 @@ namespace LineSensor8Pixel {
                 sumw += data[i] * (3.5 - i);
             }
         }
+        if (sum == 0) return 0;
         return Math.round((sumw / sum) * 28.6);
     }
 
