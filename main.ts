@@ -9,13 +9,13 @@
  * Initialize the DAC with gain 1 and Vref = 2 * 1.22V (internal reference).
  * Observer the note in the DAC datasheet function diagram, that internal reference voltage is 2 * internal band gap.
  * The current in mA though each IR diode is then 0.5 * D - 12.61, where D is the digital value sent to the DAC.
- * So, set the digital value to 2 * I(mA per diode) + 25. 
+ * So, set the digital value to 2 * I(mA per diode) + 25.
  * There is a voltage compensation build around the op-amp, which gives this +25, that ensures that we can turn the diodes completely off.
  * The 9 IR diodes it positioned with 3 parallel strings, each consisting of 3 diodes.
  * The voltage to the diodes comes from a 5V2 step-up converter.
  * It is DAC output 0 which control the IR LEDS.
  * DAC output 1 can either function as reference for the ADC, or it can control a small yellow LED. Dependent on PCB configuration.
- * 
+ *
  * The IR photodiodes is converted with a 12-bit ADC ADS7828, normal use is with internal 2.5V reference.
  * With PCB modifications it is possible to use DAC1 as external reference for the ADC.
 */
@@ -128,6 +128,15 @@ namespace LineSensor8Pixel {
     let expectedWidth = 2;
     let mainTrackSeen = false;
     let junctionCount = 0;
+    let branchCount = 0;
+    let lineLossCount = 0;
+    let uncleanCount = 0;
+    let visibilityState = 0; // 0 unknown, 1 visible, 2 lost
+    let visibilityCandidate = 0;
+    let visibilitySamples = 0;
+    let cleanlinessState = 0; // 0 unknown, 1 clean, 2 not clean
+    let cleanlinessCandidate = 0;
+    let cleanlinessSamples = 0;
     let lineFoundCount = 0;
     let lineWasVisible = false;
     let crossingCount = 0;
@@ -383,6 +392,12 @@ namespace LineSensor8Pixel {
         expectedWidth = 2;
         mainTrackSeen = false;
         lineWasVisible = false;
+        visibilityState = 0;
+        visibilityCandidate = 0;
+        visibilitySamples = 0;
+        cleanlinessState = 0;
+        cleanlinessCandidate = 0;
+        cleanlinessSamples = 0;
         lineStatus = LineStatus.NoLine;
         linePos = 0;
         eventActive = false;
@@ -404,6 +419,7 @@ namespace LineSensor8Pixel {
                     eventActive = true;
                     activeBits = candidateBits;
                     junctionCount++;
+                    if ((activeBits & LineStatus.Cross) == 0) branchCount++;
                     if ((activeBits & LineStatus.Cross) != 0) crossingCount++;
                 }
             } else {
@@ -424,6 +440,31 @@ namespace LineSensor8Pixel {
             }
         }
         if (eventActive) lineStatus |= activeBits | LineStatus.Junction;
+    }
+
+    // Confirm visibility and cleanliness independently. Counters retain even
+    // a confirmed event that ended before the next motor tick.
+    function updateLineConditions(visible: boolean, clean: boolean): void {
+        let state = visible ? 1 : 2;
+        if (state != visibilityCandidate) {
+            visibilityCandidate = state;
+            visibilitySamples = 0;
+        }
+        visibilitySamples++;
+        if (visibilitySamples >= confirmSamples && visibilityState != state) {
+            visibilityState = state;
+            if (state == 2) lineLossCount++;
+        }
+        state = clean ? 1 : 2;
+        if (state != cleanlinessCandidate) {
+            cleanlinessCandidate = state;
+            cleanlinessSamples = 0;
+        }
+        cleanlinessSamples++;
+        if (cleanlinessSamples >= confirmSamples && cleanlinessState != state) {
+            cleanlinessState = state;
+            if (state == 2) uncleanCount++;
+        }
     }
 
     // One completed, ambient-subtracted measurement, averaged over LowPassDepth.
@@ -560,6 +601,8 @@ namespace LineSensor8Pixel {
             previousTrackCentre = (selectedStart + selectedEnd) / 2;
         }
         updateEvent(observedBits);
+        updateLineConditions((lineStatus & LineStatus.LineFound) != 0,
+            (lineStatus & LineStatus.LineFound) != 0 && observedBits == 0 && !eventActive);
 
         // Learn ONLY from an ordinary, narrow, unambiguous line frame. Freeze
         // learning through crossings, branches, loss, and their release hysteresis.
@@ -672,12 +715,38 @@ namespace LineSensor8Pixel {
     //% blockId="linesensor8Pixel_resetLineFoundCount" block="Nulstil antal linjefund"
     export function resetLineFoundCount(): void { lineFoundCount = 0; }
 
+    //% blockId="linesensor8Pixel_branchCount" block="antal sideudgreninger"
+    export function getBranchCount(): number { return branchCount; }
+    //% blockId="linesensor8Pixel_atBranch" block="sideudgrening fundet?"
+    export function isAtBranch(): boolean {
+        return eventActive && (activeBits & LineStatus.Cross) == 0;
+    }
+    //% blockId="linesensor8Pixel_atCrossing" block="kryds fundet?"
+    export function isOnCrossing(): boolean {
+        return eventActive && (activeBits & LineStatus.Cross) != 0;
+    }
+    //% blockId="linesensor8Pixel_lineLost" block="linjen mistet (bekræftet)?"
+    export function isLineLostConfirmed(): boolean { return visibilityState == 2; }
+    export function getLineLossCount(): number { return lineLossCount; }
+    //% blockId="linesensor8Pixel_cleanLine" block="ren linje (bekræftet)?"
+    export function isCleanLine(): boolean {
+        return getSampleAgeMs() <= 100 && cleanlinessState == 1;
+    }
+    export function isNotCleanLineConfirmed(): boolean { return cleanlinessState == 2; }
+    export function getNotCleanLineCount(): number { return uncleanCount; }
+
     //% blockId="linesensor8Pixel_junctionCount" block="antal udgreninger eller kryds"
     export function getJunctionCount(): number { return junctionCount; }
     //% blockId="linesensor8Pixel_crossingCount" block="antal kryds"
     export function getCrossingCount(): number { return crossingCount; }
     //% blockId="linesensor8Pixel_resetCounts" block="Nulstil udgrenings- og krydstællere"
-    export function resetDetectionCounts(): void { junctionCount = 0; crossingCount = 0; }
+    export function resetDetectionCounts(): void {
+        junctionCount = 0;
+        branchCount = 0;
+        crossingCount = 0;
+        lineLossCount = 0;
+        uncleanCount = 0;
+    }
     //% blockId="linesensor8Pixel_atJunction" block="udgrening eller kryds fundet?"
     export function isAtJunction(): boolean { return eventActive; }
     export function isJunctionCandidate(): boolean { return eventCandidateSamples > 0 || eventActive; }
