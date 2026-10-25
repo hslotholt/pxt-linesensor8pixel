@@ -541,8 +541,9 @@ namespace LineSensor8Pixel {
             linePos = calcWeigthedLinePos(weights, lineData);
         }
         updateEvent(observedBits);
+        if ((lineStatus & LineStatus.Cross) != 0) lineStatus |= LineStatus.LineFound;
         let backgroundHasChanged = (lineStatus & LineStatus.BackgroundChanged) != 0;
-        updateLineConditions((lineStatus & LineStatus.LineFound) != 0 || (lineStatus & LineStatus.Cross) != 0,
+        updateLineConditions((lineStatus & LineStatus.LineFound) != 0,
             (lineStatus & LineStatus.LineFound) != 0 && observedBits == 0 && !eventActive && !backgroundHasChanged);
 
         // Learn ONLY from an ordinary, narrow, unambiguous line frame. Freeze
