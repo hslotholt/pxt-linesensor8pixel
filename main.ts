@@ -41,7 +41,7 @@ namespace LineSensor8Pixel {
     let dacGainRegister = 0x50;
 
     let LowPassDepth = 2;
-    let MinContrast = 75 * LowPassDepth;
+    let MinContrast = 75;
     let lineData = [0, 0, 0, 0, 0, 0, 0, 0];
     let linePos = 0;
 
@@ -84,26 +84,10 @@ namespace LineSensor8Pixel {
         LineFound = 1,
         //% block="Udgrening"
         Junction = 2,
-        //% block="Udgrening venstre"
-        JunctionLeft = 4,
-        //% block="Udgrening højre"
-        JuntionRight = 8,
-        //% block="Hvid udgrening venstre"
-        WhiteJunctionLeft = 16,
-        //% block="Hvid udgrening højre"
-        WhiteJunctionRight = 32,
-        //% block="Sort udgrening venstre"
-        BlackJunctionLeft = 64,
-        //% block="Sort udgrening højre"
-        BlackJunctionRight = 128,
         //% block="Kryds"
-        Cross = 256,
-        //% block="Krydser hvid"
-        WhiteLineCrossing = 512,
-        //% block="Krydser sort"
-        BlackLineCrossing = 1024,
+        Cross = 4,
         //% block="Baggrund ændret"
-        BackgroundChanged = 2048,
+        BackgroundChanged = 8,
     }
 
     let lineStatus = LineStatus.NoLine;
@@ -190,7 +174,7 @@ namespace LineSensor8Pixel {
         }
     }
 
-    //% blockID="linesensor8Pixel_initializeDACEEPROMRegisters"
+    //% advanced=true blockID="linesensor8Pixel_initializeDACEEPROMRegisters"
     //% block="Initialiser DAC EEPROM registre, kun nødvendigt en gang"
     export function initializeDACEEPROMRegisters(): void {
         dacWaitEEPROMReady();
@@ -205,7 +189,7 @@ namespace LineSensor8Pixel {
     }
 
     /** Read a single-ended ADS7828 channel (0..4095). */
-    //% blockID="linesensor8Pixel_adcRead"
+    //% advanced=true blockID="linesensor8Pixel_adcRead"
     //% block="Læs sensor %channel"
     //% channel.min=1 channel.max=8
     export function adcRead(channel: number): number {
@@ -251,7 +235,7 @@ namespace LineSensor8Pixel {
     }
 
     //% blockID="linesensor8Pixel_setStatusLed"
-    //% block="Sæt LED $led til farve $color"
+    //% advanced=true block="Sæt LED $led til farve $color"
     //% led.min=1 led.max=8
     export function setStatusLed(led: number, color: LedColor): void {
         let ic6Output = statusLedIC6Outputs;
@@ -282,14 +266,14 @@ namespace LineSensor8Pixel {
     }
 
     //% blockID="linesensor8Pixel_setDAC1Output"
-    //% block="Sæt DAC 1 output til $value"
+    //% advanced=true block="Sæt DAC 1 output til $value"
     //% value.min=0 value.max=255
     export function setDAC1Output(value: number): void {
         dacWriteRegister(dacICAddr, dac1OutputRegister, value & 0xff);
     }
 
     //% blockID="linesensor8Pixel_setIRLedCurrent"
-    //% block="Sæt IR LED strøm til $current_mA mA"
+    //% advanced=true block="Sæt IR LED strøm til $current_mA mA"
     //% current_mA.min=0 current_mA.max=90
     export function setIRLedCurrent(current_mA: number): void {
         let dacValue = 0;
@@ -311,32 +295,23 @@ namespace LineSensor8Pixel {
     */
 
     //% blockID="linesensor8Pixel_setLineSearch"
-    //% block="Følg $color linje og hold til $preference ved udgrening"
+    //% block="Indstil til $color linje og hold til $preference"
     export function setLineSearch(color: LineColor, preference: BranchPreference = BranchPreference.Left): void {
         if (searchLineColor != color) resetTracking();
         searchLineColor = color;
         branchPreference = preference;
     }
 
-    //% blockID="linesensor8Pixel_setLowPassDepth"
+    //% advanced=true blockID="linesensor8Pixel_setLowPassDepth"
     //% block="Sæt lavpasfilter dybde $depth"
     export function setLowPassDepth(depth: number): void {
-        MinContrast /= LowPassDepth;
         LowPassDepth = Math.max(1, Math.round(depth));
-        MinContrast = Math.round(MinContrast * LowPassDepth);
     }
 
-    //% blockID="linesensor8Pixel_setMinContrast"
+    //% advanced=true blockID="linesensor8Pixel_setMinContrast"
     //% block="Sæt min linje kontrast $contrast"
     export function setMinThreshold(contrast: number): void {
-        MinContrast = contrast * LowPassDepth;
-    }
-
-    //% blockId="linesensor8Pixel_hasLine"
-    //% block="linje fundet?"
-    export function hasLine(): boolean {
-        return sensorInitialized && getSampleAgeMs() <= 100 &&
-            (lineStatus & LineStatus.LineFound) != 0;
+        MinContrast = contrast;
     }
 
     //% blockID="linesensor8Pixel_getLineStatus"
@@ -442,8 +417,7 @@ namespace LineSensor8Pixel {
         if (eventActive) lineStatus |= activeBits | LineStatus.Junction;
     }
 
-    // Confirm visibility and cleanliness independently. Counters retain even
-    // a confirmed event that ended before the next motor tick.
+    // Confirm visibility and cleanliness independently.
     function updateLineConditions(visible: boolean, clean: boolean): void {
         let state = visible ? 1 : 2;
         if (state != visibilityCandidate) {
@@ -479,25 +453,25 @@ namespace LineSensor8Pixel {
             mean += raw[ch];
         }
         mean /= 8;
-        let minContrast = Math.max(1, MinContrast / LowPassDepth);
+        let minContrast = Math.max(1, MinContrast);
         let weights = [0, 0, 0, 0, 0, 0, 0, 0];
         let mask = [0, 0, 0, 0, 0, 0, 0, 0];
         let starts: number[] = [];
         let ends: number[] = [];
         let count = 0;
         let threshold = (minimum + maximum) / 2;
-        if (!referenceReady) {
-            // Bootstrap from ordinary spatial contrast, as in the original code.
-            let transformedMean = searchLineColor == LineColor.Black ? maximum - mean : mean;
-            let transformedMin = searchLineColor == LineColor.Black ? 0 : minimum;
-            let transformedMid = searchLineColor == LineColor.Black ? (maximum - minimum) / 2 : threshold;
-            let t = Math.max(transformedMean, transformedMid);
-            if (t - transformedMin >= minContrast) {
-                for (let ch = 0; ch < 8; ch++) {
-                    weights[ch] = searchLineColor == LineColor.Black ? maximum - raw[ch] : raw[ch];
-                    if (weights[ch] > t) mask[ch] = 1;
-                }
+//        if (!referenceReady) {
+        let transformedMean = searchLineColor == LineColor.Black ? maximum - mean : mean;
+        let transformedMin = searchLineColor == LineColor.Black ? 0 : minimum;
+        let transformedMid = searchLineColor == LineColor.Black ? (maximum - minimum) / 2 : threshold;
+        let t = Math.max(transformedMean, transformedMid);
+        if (t - transformedMin >= minContrast) {
+            for (let ch = 0; ch < 8; ch++) {
+                weights[ch] = searchLineColor == LineColor.Black ? maximum - raw[ch] : raw[ch];
+                if (weights[ch] > t) mask[ch] = 1;
             }
+        }
+/*        
         } else {
             // Match the learned FOLLOWED line, not every departure from background.
             let span = learnedLine - learnedBackground;
@@ -507,6 +481,8 @@ namespace LineSensor8Pixel {
                 weights[ch] = Math.max(0, likeness);
             }
         }
+*/        
+        // Search for edges
         for (let ch = 0; ch < 8; ch++) {
             if (mask[ch] != 0) {
                 count++;
@@ -519,6 +495,7 @@ namespace LineSensor8Pixel {
         let observedBits = 0;
         let selectedStart = -1;
         let selectedEnd = -1;
+        // If we found at least one line
         if (starts.length > 0) {
             let chosen = branchPreference == BranchPreference.Left ? 0 : starts.length - 1;
             selectedStart = starts[chosen];
@@ -529,30 +506,6 @@ namespace LineSensor8Pixel {
                 for (let ch = 0; ch < 8; ch++) {
                     if (mask[ch] != 0 && (ch < selectedStart || ch > selectedEnd)) {
                         lineData[ch] = LineData.Junction;
-                        observedBits |= ch < selectedStart ? LineStatus.JunctionLeft : LineStatus.JuntionRight;
-                    }
-                }
-                // Include the chosen arm in the observed geometry as well.
-                for (let i = 0; i < starts.length; i++) {
-                    if ((starts[i] + ends[i]) / 2 < previousTrackCentre - 0.5) observedBits |= LineStatus.JunctionLeft;
-                    if ((starts[i] + ends[i]) / 2 > previousTrackCentre + 0.5) observedBits |= LineStatus.JuntionRight;
-                }
-            } else {
-                let width = selectedEnd - selectedStart + 1;
-                let wide = width >= 6 || (mainTrackSeen && width >= Math.ceil(expectedWidth) + 2);
-                if (wide) {
-                    observedBits |= LineStatus.Junction;
-                    if (selectedStart < previousTrackCentre - expectedWidth / 2) observedBits |= LineStatus.JunctionLeft;
-                    if (selectedEnd > previousTrackCentre + expectedWidth / 2) observedBits |= LineStatus.JuntionRight;
-                    if (width >= 6) observedBits |= LineStatus.Cross;
-                    // On a joined Y or T, choose the edge corresponding to preference.
-                    let keep = Math.max(1, Math.min(3, Math.round(expectedWidth)));
-                    let oldStart = selectedStart;
-                    let oldEnd = selectedEnd;
-                    if (branchPreference == BranchPreference.Left) selectedEnd = Math.min(oldEnd, oldStart + keep - 1);
-                    else selectedStart = Math.max(oldStart, oldEnd - keep + 1);
-                    for (let ch = oldStart; ch <= oldEnd; ch++) {
-                        if (ch < selectedStart || ch > selectedEnd) lineData[ch] = LineData.Junction;
                     }
                 }
             }
@@ -560,53 +513,41 @@ namespace LineSensor8Pixel {
             lineStatus = LineStatus.LineFound;
         }
 
-        // Mark other-colour deviations in background pixels. They are observations,
-        // never steering targets while following the selected line colour.
-        if (referenceReady && selectedStart >= 0) {
+        // Detect cross
+        if (referenceReady && lineStatus == LineStatus.NoLine) {
             let contrast = Math.abs(learnedLine - learnedBackground);
             let tolerance = Math.max(minContrast, 0.35 * contrast);
-            // Require a pair to reject isolated noisy pixels.
-            for (let ch = 0; ch < 7; ch++) {
-                if (mask[ch] == 0 && mask[ch + 1] == 0 &&
-                    Math.abs(raw[ch] - learnedBackground) > tolerance &&
-                    Math.abs(raw[ch + 1] - learnedBackground) > tolerance &&
-                    (raw[ch] - learnedBackground) * (raw[ch + 1] - learnedBackground) > 0) {
-                    let left = ch + 0.5 < (selectedStart + selectedEnd) / 2;
-                    let lighter = (raw[ch] + raw[ch + 1]) / 2 > learnedBackground;
-                    observedBits |= LineStatus.Junction;
-                    observedBits |= left ? LineStatus.JunctionLeft : LineStatus.JuntionRight;
-                    observedBits |= lighter ?
-                        (left ? LineStatus.WhiteJunctionLeft : LineStatus.WhiteJunctionRight) :
-                        (left ? LineStatus.BlackJunctionLeft : LineStatus.BlackJunctionRight);
-                    lineData[ch] = LineData.Junction;
-                    lineData[ch + 1] = LineData.Junction;
+            if (Math.abs(maximum - learnedLine) < tolerance &&
+                Math.abs(minimum - learnedLine) < tolerance) {
+                    lineStatus |= LineStatus.Cross | LineStatus.Junction;
+                    observedBits |= LineStatus.Cross | LineStatus.Junction;
+                }
+        }
+        // Detect background changed
+        if (referenceReady && (lineStatus & LineStatus.LineFound) != 0) {
+            let backgrundMean = 0;
+            let cnt = 0;
+            for (let ch = 0; ch < 8; ch++) {
+                if (lineData[ch] == LineData.Background) {
+                    backgrundMean += raw[ch];
+                    cnt++;
                 }
             }
-        } else if (referenceReady && selectedStart < 0) {
-            // A uniform change is ambiguous: expose it, without inventing a line.
-            let deviation = mean - learnedBackground;
-            if (maximum - minimum < Math.max(minContrast, Math.abs(learnedLine - learnedBackground) * 0.35) &&
-                Math.abs(deviation) > Math.max(minContrast, Math.abs(learnedLine - learnedBackground) * 0.35)) {
-                lineStatus |= LineStatus.BackgroundChanged;
-                // Observation only: another-colour crossing and a floor patch
-                // are indistinguishable from this one-dimensional measurement.
-                observedBits |= LineStatus.Cross | LineStatus.Junction;
-                observedBits |= deviation > 0 ? LineStatus.WhiteLineCrossing : LineStatus.BlackLineCrossing;
-                for (let ch = 0; ch < 8; ch++) lineData[ch] = LineData.Junction;
-            }
+            backgrundMean /= cnt;
+            if (Math.abs(backgrundMean - learnedBackground) > minContrast) lineStatus |= LineStatus.BackgroundChanged;
         }
 
         if (selectedStart >= 0) {
             linePos = calcWeigthedLinePos(weights, lineData);
-            previousTrackCentre = (selectedStart + selectedEnd) / 2;
         }
         updateEvent(observedBits);
+        let backgroundHasChanged = (lineStatus & LineStatus.BackgroundChanged) != 0;
         updateLineConditions((lineStatus & LineStatus.LineFound) != 0,
-            (lineStatus & LineStatus.LineFound) != 0 && observedBits == 0 && !eventActive);
+            (lineStatus & LineStatus.LineFound) != 0 && observedBits == 0 && !eventActive && !backgroundChanged);
 
         // Learn ONLY from an ordinary, narrow, unambiguous line frame. Freeze
         // learning through crossings, branches, loss, and their release hysteresis.
-        if (starts.length == 1 && count >= 1 && count <= 4 && observedBits == 0 && !eventActive) {
+        if (starts.length == 1 && count >= 1 && count <= 4 && observedBits == 0 && !eventActive && !backgroundChanged) {
             let sumLine = 0;
             let sumBackground = 0;
             for (let ch = 0; ch < 8; ch++) {
@@ -628,11 +569,6 @@ namespace LineSensor8Pixel {
         }
     }
 
-    // Compatibility: initialization starts continuous acquisition. Never launch
-    // another acquisition from a user's polling loop.
-    //% advanced=true blockId="linesensor8Pixel_sample" block="Start sensoren (kompatibilitet)"
-    export function sample(): void { initLinesensor8Pixel(); }
-
     function acquireSample(): void {
         if (samplingBusy) return;
         samplingBusy = true;
@@ -640,7 +576,7 @@ namespace LineSensor8Pixel {
         let depth = LowPassDepth;
         let ambient = [0, 0, 0, 0, 0, 0, 0, 0];
         let illuminated = [0, 0, 0, 0, 0, 0, 0, 0];
-        setIRLedCurrent(0);
+        //setIRLedCurrent(0); - IR LED current is expected to allready be zero. Don't waste IIC cycles
         for (let n = 0; n < depth; n++) {
             // Reverse physical channels once: logical index 0 = robot-left.
             for (let ch = 0; ch < 8; ch++) ambient[ch] += adcRead(8 - ch);
@@ -676,87 +612,101 @@ namespace LineSensor8Pixel {
         });
     }
 
-    // Sensor acquisition always runs after initialization; only the requested
-    // period changes. It includes acquisition time and is not a hard deadline.
-    //% blockId="linesensor8Pixel_period"
-    //% block="Indstil måleinterval til $periodMs ms"
-    //% periodMs.defl=10 periodMs.min=1
-    export function setSamplingPeriod(periodMs: number): void {
-        requestedPeriodMs = Math.max(1, Math.round(periodMs));
+    //% blockId="linesensor8Pixel_hasLine"
+    //% block="linje fundet?"
+    export function hasLine(): boolean {
+        return sensorInitialized && getSampleAgeMs() <= 3 * requestedPeriodMs &&
+            (lineStatus & LineStatus.LineFound) != 0;
     }
 
-    // Compatibility with the preceding automatic-sampling API.
-    //% advanced=true blockId="linesensor8Pixel_startSampling"
-    //% block="Start sensor med måleinterval $periodMs ms"
-    //% periodMs.defl=10 periodMs.min=1
-    export function startAutomaticSampling(periodMs: number = 10): void {
-        setSamplingPeriod(periodMs);
-        initLinesensor8Pixel();
-    }
-    export function isAutomaticSampling(): boolean {
-        return sensorInitialized && samplingLoopStarted;
-    }
-    //% advanced=true blockId="linesensor8Pixel_ready" block="sensor initialiseret?"
-    export function isInitialized(): boolean { return sensorInitialized; }
-    //% advanced=true blockId="linesensor8Pixel_age" block="målingens alder ms"
-    export function getSampleAgeMs(): number {
-        return lastSampleTime < 0 ? 2147483647 : input.runningTime() - lastSampleTime;
-    }
-    //% advanced=true blockId="linesensor8Pixel_duration" block="målingens varighed ms"
-    export function getSampleDurationMs(): number { return lastSampleDurationMs; }
-    //% advanced=true blockId="linesensor8Pixel_interval" block="måleinterval ms"
-    export function getSampleIntervalMs(): number { return lastSampleIntervalMs; }
-    //% advanced=true blockId="linesensor8Pixel_maxInterval" block="største måleinterval ms"
-    export function getMaxSampleIntervalMs(): number { return maxSampleIntervalMs; }
-
-    // Count transitions into line visibility, retaining even a short observation.
-    //% blockId="linesensor8Pixel_lineFoundCount" block="antal nye linjefund"
-    export function getLineFoundCount(): number { return lineFoundCount; }
-    //% blockId="linesensor8Pixel_resetLineFoundCount" block="Nulstil antal linjefund"
-    export function resetLineFoundCount(): void { lineFoundCount = 0; }
-
-    //% blockId="linesensor8Pixel_branchCount" block="antal sideudgreninger"
-    export function getBranchCount(): number { return branchCount; }
     //% blockId="linesensor8Pixel_atBranch" block="sideudgrening fundet?"
     export function isAtBranch(): boolean {
         return eventActive && (activeBits & LineStatus.Cross) == 0;
     }
+
     //% blockId="linesensor8Pixel_atCrossing" block="kryds fundet?"
     export function isOnCrossing(): boolean {
         return eventActive && (activeBits & LineStatus.Cross) != 0;
     }
-    //% blockId="linesensor8Pixel_lineLost" block="linjen mistet (bekræftet)?"
+
+    //% blockId="linesensor8Pixel_atJunction" block="udgrening eller kryds fundet?"
+    export function isAtJunction(): boolean { return eventActive; }
+
+    //% blockId="linesensor8Pixel_backgroundChanged" block="baggrunden ændret?"
+    export function backgroundChanged(): boolean { return (lineStatus & LineStatus.BackgroundChanged) != 0; }
+
+    //% blockId="linesensor8Pixel_lineLost" block="linjen mistet?"
     export function isLineLostConfirmed(): boolean { return visibilityState == 2; }
-    export function getLineLossCount(): number { return lineLossCount; }
-    //% blockId="linesensor8Pixel_cleanLine" block="ren linje (bekræftet)?"
+
+    //% blockId="linesensor8Pixel_cleanLine" block="ren linje?"
     export function isCleanLine(): boolean {
         return getSampleAgeMs() <= 100 && cleanlinessState == 1;
     }
-    export function isNotCleanLineConfirmed(): boolean { return cleanlinessState == 2; }
-    export function getNotCleanLineCount(): number { return uncleanCount; }
 
-    //% blockId="linesensor8Pixel_junctionCount" block="antal udgreninger eller kryds"
-    export function getJunctionCount(): number { return junctionCount; }
-    //% blockId="linesensor8Pixel_crossingCount" block="antal kryds"
-    export function getCrossingCount(): number { return crossingCount; }
-    //% blockId="linesensor8Pixel_resetCounts" block="Nulstil udgrenings- og krydstællere"
+    //% blockId="linesensor8Pixel_resetCounts" block="Nulstil linje-, udgrenings- og krydstællere"
     export function resetDetectionCounts(): void {
         junctionCount = 0;
         branchCount = 0;
         crossingCount = 0;
         lineLossCount = 0;
         uncleanCount = 0;
+        lineFoundCount = 0;
     }
-    //% blockId="linesensor8Pixel_atJunction" block="udgrening eller kryds fundet?"
-    export function isAtJunction(): boolean { return eventActive; }
+
+    // Count transitions into line visibility, retaining even a short observation.
+    //% blockId="linesensor8Pixel_lineFoundCount" block="antal nye linjefund"
+    export function getLineFoundCount(): number { return lineFoundCount; }
+
+    //% blockId="linesensor8Pixel_branchCount" block="antal sideudgreninger"
+    export function getBranchCount(): number { return branchCount; }
+
+    //% blockId="linesensor8Pixel_crossingCount" block="antal kryds"
+    export function getCrossingCount(): number { return crossingCount; }
+
+    //% blockId="linesensor8Pixel_junctionCount" block="antal udgreninger eller kryds"
+    export function getJunctionCount(): number { return junctionCount; }
+
+    export function getLineLossCount(): number { return lineLossCount; }
+
+    export function isNotCleanLineConfirmed(): boolean { return cleanlinessState == 2; }
+
+    export function getNotCleanLineCount(): number { return uncleanCount; }
+
     export function isJunctionCandidate(): boolean { return eventCandidateSamples > 0 || eventActive; }
-    //% blockId="linesensor8Pixel_backgroundChanged" block="baggrunden ændret?"
-    export function backgroundChanged(): boolean { return (lineStatus & LineStatus.BackgroundChanged) != 0; }
+
     //% advanced=true blockId="linesensor8Pixel_referenceReady" block="linje og baggrund indlært?"
     export function referenceEstablished(): boolean { return referenceReady; }
+
     //% advanced=true blockId="linesensor8Pixel_resetReference" block="Nulstil indlært linje og baggrund"
     export function resetReference(): void { resetTracking(); }
 
+    //% advanced=true blockId="linesensor8Pixel_ready" block="sensor initialiseret?"
+    export function isInitialized(): boolean { return sensorInitialized; }
+
+    //% advanced=true blockId="linesensor8Pixel_age" block="målingens alder ms"
+    export function getSampleAgeMs(): number {
+        return lastSampleTime < 0 ? 2147483647 : input.runningTime() - lastSampleTime;
+    }
+
+    //% advanced=true blockId="linesensor8Pixel_duration" block="målingens varighed ms"
+    export function getSampleDurationMs(): number { return lastSampleDurationMs; }
+
+    //% advanced=true blockId="linesensor8Pixel_interval" block="måleinterval ms"
+    export function getSampleIntervalMs(): number { return lastSampleIntervalMs; }
+
+    //% advanced=true blockId="linesensor8Pixel_maxInterval" block="største måleinterval ms"
+    export function getMaxSampleIntervalMs(): number { return maxSampleIntervalMs; }
+
+    // Sensor acquisition always runs after initialization; only the requested
+    // period changes. It includes acquisition time and is not a hard deadline.
+    //% advanced=true blockId="linesensor8Pixel_period"
+    //% block="Indstil måleinterval til $periodMs ms"
+    //% periodMs.defl=10 periodMs.min=1
+    export function setSamplingPeriod(periodMs: number): void {
+        requestedPeriodMs = Math.max(1, Math.round(periodMs));
+    }
+
+/*
     // Optional startup calibration; covers ALL pixels with one material.
     //% advanced=true blockId="linesensor8Pixel_captureSurface"
     //% block="Kalibrer hele sensoren på $surface"
@@ -776,4 +726,5 @@ namespace LineSensor8Pixel {
             Math.abs(learnedLine - learnedBackground) >= Math.max(1, MinContrast / LowPassDepth);
         return true;
     }
+*/
 }
