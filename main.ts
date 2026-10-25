@@ -88,6 +88,8 @@ namespace LineSensor8Pixel {
         Cross = 4,
         //% block="Baggrund ændret"
         BackgroundChanged = 8,
+        //% block="Linjetykkelse halveret"
+        WidthHalved = 16,
     }
 
     let lineStatus = LineStatus.NoLine;
@@ -107,9 +109,15 @@ namespace LineSensor8Pixel {
     let referenceReady = false;
     let haveLineReference = false;
     let haveBackgroundReference = false;
-    let referenceTimeS = 0.7;
-    let previousTrackCentre = 3.5;
-    let expectedWidth = 2;
+    let referenceTimeS = 1;
+    let expectedWidth = 0;
+    let widthReferenceReady = false;
+    let currentWidthPixels = 0;
+    let widthMeasurementValid = false;
+    let halfWidthActive = false;
+    let halfWidthCandidateSamples = 0;
+    let halfWidthClearSamples = 0;
+    let halfWidthCount = 0;
     let junctionCount = 0;
     let branchCount = 0;
     let lineLossCount = 0;
@@ -361,8 +369,13 @@ namespace LineSensor8Pixel {
         referenceReady = false;
         haveBackgroundReference = false;
         haveLineReference = false;
-        previousTrackCentre = 3.5;
-        expectedWidth = 2;
+        expectedWidth = 0;
+        widthReferenceReady = false;
+        currentWidthPixels = 0;
+        widthMeasurementValid = false;
+        halfWidthActive = false;
+        halfWidthCandidateSamples = 0;
+        halfWidthClearSamples = 0;
         lineWasVisible = false;
         visibilityState = 0;
         visibilityCandidate = 0;
@@ -414,6 +427,47 @@ namespace LineSensor8Pixel {
         if (eventActive) lineStatus |= activeBits | LineStatus.Junction;
     }
 
+    // Width is the number of classified pixels in the selected contiguous track.
+    // Freeze the width reference from the FIRST half-width candidate, so it
+    // cannot adapt downwards before the event has been confirmed.
+    function updateLineWidth(width: number, valid: boolean, dt: number): void {
+        widthMeasurementValid = valid;
+        currentWidthPixels = valid ? width : 0;
+        if (!valid) {
+            halfWidthCandidateSamples = 0;
+            halfWidthClearSamples = 0;
+            // Do not rearm just because a branch/cross/lost line hides width.
+            return;
+        }
+        if (!widthReferenceReady) {
+            expectedWidth = width;
+            widthReferenceReady = true;
+            return;
+        }
+        let half = width <= 0.5 * expectedWidth + 0.000001;
+        if (half) {
+            halfWidthClearSamples = 0;
+            halfWidthCandidateSamples++;
+            if (!halfWidthActive && halfWidthCandidateSamples >= confirmSamples) {
+                halfWidthActive = true;
+                halfWidthCount++;
+            }
+            return;
+        }
+        halfWidthCandidateSamples = 0;
+        if (halfWidthActive) {
+            // Hysteresis: regain >65% of the original width for three valid
+            // samples before rearming. Freeze the reference through recovery.
+            halfWidthClearSamples = width > 0.65 * expectedWidth ? halfWidthClearSamples + 1 : 0;
+            if (halfWidthClearSamples >= clearSamples) {
+                halfWidthActive = false;
+                halfWidthClearSamples = 0;
+            }
+            return;
+        }
+        expectedWidth += dt / (referenceTimeS + dt) * (width - expectedWidth);
+    }
+
     // Confirm visibility and cleanliness independently.
     function updateLineConditions(visible: boolean, clean: boolean): void {
         let state = visible ? 1 : 2;
@@ -457,7 +511,7 @@ namespace LineSensor8Pixel {
         let ends: number[] = [];
         let count = 0;
         let threshold = (minimum + maximum) / 2;
-//        if (!referenceReady) {
+        //        if (!referenceReady) {
         let transformedMean = searchLineColor == LineColor.Black ? maximum - mean : mean;
         let transformedMin = searchLineColor == LineColor.Black ? 0 : minimum;
         let transformedMid = searchLineColor == LineColor.Black ? (maximum - minimum) / 2 : threshold;
@@ -468,17 +522,17 @@ namespace LineSensor8Pixel {
                 if (weights[ch] > t) mask[ch] = 1;
             }
         }
-/*        
-        } else {
-            // Match the learned FOLLOWED line, not every departure from background.
-            let span = learnedLine - learnedBackground;
-            for (let ch = 0; ch < 8; ch++) {
-                let likeness = (raw[ch] - learnedBackground) / span;
-                if (likeness >= 0.5) mask[ch] = 1;
-                weights[ch] = Math.max(0, likeness);
-            }
-        }
-*/        
+        /*        
+                } else {
+                    // Match the learned FOLLOWED line, not every departure from background.
+                    let span = learnedLine - learnedBackground;
+                    for (let ch = 0; ch < 8; ch++) {
+                        let likeness = (raw[ch] - learnedBackground) / span;
+                        if (likeness >= 0.5) mask[ch] = 1;
+                        weights[ch] = Math.max(0, likeness);
+                    }
+                }
+        */
         // Search for edges
         for (let ch = 0; ch < 8; ch++) {
             if (mask[ch] != 0) {
@@ -516,9 +570,9 @@ namespace LineSensor8Pixel {
             let tolerance = Math.max(minContrast, 0.35 * contrast);
             if (Math.abs(maximum - learnedLine) < tolerance &&
                 Math.abs(minimum - learnedLine) < tolerance) {
-                    lineStatus |= LineStatus.Cross | LineStatus.Junction;
-                    observedBits |= LineStatus.Cross | LineStatus.Junction;
-                }
+                lineStatus |= LineStatus.Cross | LineStatus.Junction;
+                observedBits |= LineStatus.Cross | LineStatus.Junction;
+            }
         }
         // Detect background changed
         if (referenceReady && (lineStatus & LineStatus.LineFound) != 0) {
@@ -540,6 +594,12 @@ namespace LineSensor8Pixel {
         updateEvent(observedBits);
         if ((lineStatus & LineStatus.Cross) != 0) lineStatus |= LineStatus.LineFound;
         let backgroundHasChanged = (lineStatus & LineStatus.BackgroundChanged) != 0;
+        // Ignore branches, crossings, changed background and clipped tracks:
+        // an edge-clipped line can look half as wide without actually changing.
+        let widthValid = starts.length == 1 && selectedStart > 0 && selectedEnd < 7 &&
+            observedBits == 0 && !eventActive && !backgroundHasChanged;
+        updateLineWidth(selectedEnd - selectedStart + 1, widthValid, dt);
+        if (halfWidthActive && widthMeasurementValid) lineStatus |= LineStatus.WidthHalved;
         updateLineConditions((lineStatus & LineStatus.LineFound) != 0,
             (lineStatus & LineStatus.LineFound) != 0 && observedBits == 0 && !eventActive && !backgroundHasChanged);
 
@@ -561,7 +621,6 @@ namespace LineSensor8Pixel {
                 haveLineReference = true;
                 haveBackgroundReference = true;
                 referenceReady = true;
-                expectedWidth += alpha * (count - expectedWidth);
             }
         }
     }
@@ -636,7 +695,7 @@ namespace LineSensor8Pixel {
     export function isCleanLine(): boolean {
         return getSampleAgeMs() <= 100 && cleanlinessState == 1;
     }
-    
+
     //% blockId="linesensor8Pixel_resetCounts" block="Nulstil linje-, udgrenings- og krydstællere"
     export function resetDetectionCounts(): void {
         junctionCount = 0;
@@ -645,6 +704,7 @@ namespace LineSensor8Pixel {
         lineLossCount = 0;
         uncleanCount = 0;
         lineFoundCount = 0;
+        halfWidthCount = 0;
     }
 
     // Count transitions into line visibility, retaining even a short observation.
@@ -659,6 +719,17 @@ namespace LineSensor8Pixel {
 
     //% blockId="linesensor8Pixel_junctionCount" block="antal udgreninger eller kryds"
     export function getJunctionCount(): number { return junctionCount; }
+
+    //% blockId="linesensor8Pixel_widthHalved" block="linjetykkelsen halveret?"
+    export function isLineWidthHalved(): boolean {
+        return halfWidthActive && widthMeasurementValid;
+    }
+    //% blockId="linesensor8Pixel_halfWidthCount" block="antal halveringer af linjetykkelsen"
+    export function getLineWidthHalvedCount(): number { return halfWidthCount; }
+    //% advanced=true blockId="linesensor8Pixel_currentWidth" block="linjetykkelse i sensorer"
+    export function getLineWidthPixels(): number { return currentWidthPixels; }
+    //% advanced=true blockId="linesensor8Pixel_learnedWidth" block="indlært linjetykkelse i sensorer"
+    export function getLearnedLineWidthPixels(): number { return widthReferenceReady ? expectedWidth : 0; }
 
     export function getLineLossCount(): number { return lineLossCount; }
 
@@ -703,25 +774,25 @@ namespace LineSensor8Pixel {
         requestedPeriodMs = Math.max(1, Math.round(periodMs));
     }
 
-/*
-    // Optional startup calibration; covers ALL pixels with one material.
-    //% advanced=true blockId="linesensor8Pixel_captureSurface"
-    //% block="Kalibrer hele sensoren på $surface"
-    export function calibrateSurface(surface: LineData): boolean {
-        if (getSampleAgeMs() > 100 || surface == LineData.Junction) return false;
-        let mean = 0;
-        for (let ch = 0; ch < 8; ch++) mean += rawSignal[ch];
-        mean /= 8;
-        if (surface == LineData.Background) {
-            learnedBackground = mean;
-            haveBackgroundReference = true;
-        } else {
-            learnedLine = mean;
-            haveLineReference = true;
+    /*
+        // Optional startup calibration; covers ALL pixels with one material.
+        //% advanced=true blockId="linesensor8Pixel_captureSurface"
+        //% block="Kalibrer hele sensoren på $surface"
+        export function calibrateSurface(surface: LineData): boolean {
+            if (getSampleAgeMs() > 100 || surface == LineData.Junction) return false;
+            let mean = 0;
+            for (let ch = 0; ch < 8; ch++) mean += rawSignal[ch];
+            mean /= 8;
+            if (surface == LineData.Background) {
+                learnedBackground = mean;
+                haveBackgroundReference = true;
+            } else {
+                learnedLine = mean;
+                haveLineReference = true;
+            }
+            referenceReady = haveBackgroundReference && haveLineReference &&
+                Math.abs(learnedLine - learnedBackground) >= Math.max(1, MinContrast / LowPassDepth);
+            return true;
         }
-        referenceReady = haveBackgroundReference && haveLineReference &&
-            Math.abs(learnedLine - learnedBackground) >= Math.max(1, MinContrast / LowPassDepth);
-        return true;
-    }
-*/
+    */
 }
