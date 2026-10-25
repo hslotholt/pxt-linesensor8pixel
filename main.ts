@@ -542,12 +542,12 @@ namespace LineSensor8Pixel {
         }
         updateEvent(observedBits);
         let backgroundHasChanged = (lineStatus & LineStatus.BackgroundChanged) != 0;
-        updateLineConditions((lineStatus & LineStatus.LineFound) != 0,
-            (lineStatus & LineStatus.LineFound) != 0 && observedBits == 0 && !eventActive && !backgroundChanged);
+        updateLineConditions((lineStatus & LineStatus.LineFound) != 0 || (lineStatus & LineStatus.Cross) != 0,
+            (lineStatus & LineStatus.LineFound) != 0 && observedBits == 0 && !eventActive && !backgroundHasChanged);
 
         // Learn ONLY from an ordinary, narrow, unambiguous line frame. Freeze
         // learning through crossings, branches, loss, and their release hysteresis.
-        if (starts.length == 1 && count >= 1 && count <= 4 && observedBits == 0 && !eventActive && !backgroundChanged) {
+        if (starts.length == 1 && count >= 1 && count <= 4 && observedBits == 0 && !eventActive && !backgroundHasChanged) {
             let sumLine = 0;
             let sumBackground = 0;
             for (let ch = 0; ch < 8; ch++) {
@@ -635,14 +635,11 @@ namespace LineSensor8Pixel {
     //% blockId="linesensor8Pixel_backgroundChanged" block="baggrunden ændret?"
     export function backgroundChanged(): boolean { return (lineStatus & LineStatus.BackgroundChanged) != 0; }
 
-    //% blockId="linesensor8Pixel_lineLost" block="linjen mistet?"
-    export function isLineLostConfirmed(): boolean { return visibilityState == 2; }
-
     //% blockId="linesensor8Pixel_cleanLine" block="ren linje?"
     export function isCleanLine(): boolean {
         return getSampleAgeMs() <= 100 && cleanlinessState == 1;
     }
-
+    
     //% blockId="linesensor8Pixel_resetCounts" block="Nulstil linje-, udgrenings- og krydstællere"
     export function resetDetectionCounts(): void {
         junctionCount = 0;
@@ -673,6 +670,9 @@ namespace LineSensor8Pixel {
     export function getNotCleanLineCount(): number { return uncleanCount; }
 
     export function isJunctionCandidate(): boolean { return eventCandidateSamples > 0 || eventActive; }
+
+    //% advanced=true blockId="linesensor8Pixel_lineLost" block="linjen mistet? (sikker)"
+    export function isLineLostConfirmed(): boolean { return visibilityState == 2; }
 
     //% advanced=true blockId="linesensor8Pixel_referenceReady" block="linje og baggrund indlært?"
     export function referenceEstablished(): boolean { return referenceReady; }
