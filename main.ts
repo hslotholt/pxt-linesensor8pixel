@@ -88,7 +88,9 @@ namespace LineSensor8Pixel {
         Cross = 4,
         //% block="Baggrund ændret"
         BackgroundChanged = 8,
-        //% block="Linjetykkelse halveret"
+        //% block="Linjetykkelse ændret"
+        WidthChanged = 16,
+        // Legacy TypeScript name; same bit, now covers both directions.
         WidthHalved = 16,
     }
 
@@ -114,10 +116,10 @@ namespace LineSensor8Pixel {
     let widthReferenceReady = false;
     let currentWidthPixels = 0;
     let widthMeasurementValid = false;
-    let halfWidthActive = false;
-    let halfWidthCandidateSamples = 0;
-    let halfWidthClearSamples = 0;
-    let halfWidthCount = 0;
+    let widthChangeActive = false;
+    let widthChangeCandidateSamples = 0;
+    let widthChangeClearSamples = 0;
+    let widthChangeCount = 0;
     let junctionCount = 0;
     let branchCount = 0;
     let lineLossCount = 0;
@@ -373,9 +375,9 @@ namespace LineSensor8Pixel {
         widthReferenceReady = false;
         currentWidthPixels = 0;
         widthMeasurementValid = false;
-        halfWidthActive = false;
-        halfWidthCandidateSamples = 0;
-        halfWidthClearSamples = 0;
+        widthChangeActive = false;
+        widthChangeCandidateSamples = 0;
+        widthChangeClearSamples = 0;
         lineWasVisible = false;
         visibilityState = 0;
         visibilityCandidate = 0;
@@ -427,45 +429,52 @@ namespace LineSensor8Pixel {
         if (eventActive) lineStatus |= activeBits | LineStatus.Junction;
     }
 
-    // Width is the number of classified pixels in the selected contiguous track.
-    // Freeze the width reference from the FIRST half-width candidate, so it
-    // cannot adapt downwards before the event has been confirmed.
-    function updateLineWidth(width: number, valid: boolean, dt: number): void {
+    // Width is pixel coverage of one chosen contiguous track. complete=false
+    // means an edge-clipped lower bound: it can prove thickening, not thinning.
+    function updateLineWidth(width: number, valid: boolean, complete: boolean, dt: number): void {
         widthMeasurementValid = valid;
         currentWidthPixels = valid ? width : 0;
         if (!valid) {
-            halfWidthCandidateSamples = 0;
-            halfWidthClearSamples = 0;
-            // Do not rearm just because a branch/cross/lost line hides width.
+            widthChangeCandidateSamples = 0;
+            widthChangeClearSamples = 0;
             return;
         }
         if (!widthReferenceReady) {
-            expectedWidth = width;
-            widthReferenceReady = true;
-            return;
-        }
-        let half = width <= 0.5 * expectedWidth + 0.000001;
-        if (half) {
-            halfWidthClearSamples = 0;
-            halfWidthCandidateSamples++;
-            if (!halfWidthActive && halfWidthCandidateSamples >= confirmSamples) {
-                halfWidthActive = true;
-                halfWidthCount++;
+            if (complete) {
+                expectedWidth = width;
+                widthReferenceReady = true;
             }
             return;
         }
-        halfWidthCandidateSamples = 0;
-        if (halfWidthActive) {
-            // Hysteresis: regain >65% of the original width for three valid
-            // samples before rearming. Freeze the reference through recovery.
-            halfWidthClearSamples = width > 0.65 * expectedWidth ? halfWidthClearSamples + 1 : 0;
-            if (halfWidthClearSamples >= clearSamples) {
-                halfWidthActive = false;
-                halfWidthClearSamples = 0;
+        let thinner = complete && width <= 0.5 * expectedWidth + 0.000001;
+        let thicker = width >= 2 * expectedWidth - 0.000001;
+        if (thinner || thicker) {
+            widthChangeClearSamples = 0;
+            widthChangeCandidateSamples++;
+            if (!widthChangeActive && widthChangeCandidateSamples >= confirmSamples) {
+                widthChangeActive = true;
+                widthChangeCount++;
             }
             return;
         }
-        expectedWidth += dt / (referenceTimeS + dt) * (width - expectedWidth);
+        widthChangeCandidateSamples = 0;
+        if (widthChangeActive) {
+            // Rearm only on a fully visible near-normal track, not merely
+            // because a branch/cross/lost line makes the width unknown.
+            let recovered = complete && width > 0.65 * expectedWidth && width < 1.6 * expectedWidth;
+            widthChangeClearSamples = recovered ? widthChangeClearSamples + 1 : 0;
+            if (widthChangeClearSamples >= clearSamples) {
+                widthChangeActive = false;
+                widthChangeClearSamples = 0;
+            }
+            return;
+        }
+        // Freeze on substantial departures already before reaching 0.5x/2x.
+        // Otherwise a transition 2 -> 3 -> 4 would adapt the reference above
+        // two pixels and miss the intended doubling at four pixels.
+        if (complete && Math.abs(width - expectedWidth) < 0.25 * expectedWidth) {
+            expectedWidth += dt / (referenceTimeS + dt) * (width - expectedWidth);
+        }
     }
 
     // Confirm visibility and cleanliness independently.
@@ -594,14 +603,23 @@ namespace LineSensor8Pixel {
         updateEvent(observedBits);
         if ((lineStatus & LineStatus.Cross) != 0) lineStatus |= LineStatus.LineFound;
         let backgroundHasChanged = (lineStatus & LineStatus.BackgroundChanged) != 0;
-        // Ignore branches, crossings, changed background and clipped tracks:
-        // an edge-clipped line can look half as wide without actually changing.
-        let widthValid = starts.length == 1 && selectedStart > 0 && selectedEnd < 7 &&
-            observedBits == 0 && !eventActive && !backgroundHasChanged;
-        updateLineWidth(selectedEnd - selectedStart + 1, widthValid, dt);
-        if (halfWidthActive && widthMeasurementValid) lineStatus |= LineStatus.WidthHalved;
+        // Use a single track; clipped coverage is a lower bound, never a
+        // trustworthy baseline or evidence of thinning. A uniform same-colour
+        // crossing proves coverage of all 8 sensors and may also be thickening.
+        let singleTrack = starts.length == 1 && observedBits == 0 && !eventActive && !backgroundHasChanged;
+        let uniformCross = (observedBits & LineStatus.Cross) != 0;
+        let widthValid = singleTrack || uniformCross;
+        let completeWidth = singleTrack && selectedStart > 0 && selectedEnd < 7;
+        let measuredWidth = uniformCross ? 8 : selectedEnd - selectedStart + 1;
+        updateLineWidth(measuredWidth, widthValid, completeWidth, dt);
+        let widthHasChanged = widthChangeActive && widthMeasurementValid;
+        if (widthHasChanged) lineStatus |= LineStatus.WidthChanged;
+        // Feed the raw width candidate to the existing cleanliness debounce,
+        // so both confirmed results become active on the same second sample.
+        let widthNotClean = widthChangeActive || widthChangeCandidateSamples > 0;
         updateLineConditions((lineStatus & LineStatus.LineFound) != 0,
-            (lineStatus & LineStatus.LineFound) != 0 && observedBits == 0 && !eventActive && !backgroundHasChanged);
+            (lineStatus & LineStatus.LineFound) != 0 && observedBits == 0 && !eventActive &&
+            !backgroundHasChanged && !widthNotClean);
 
         // Learn ONLY from an ordinary, narrow, unambiguous line frame. Freeze
         // learning through crossings, branches, loss, and their release hysteresis.
@@ -704,7 +722,7 @@ namespace LineSensor8Pixel {
         lineLossCount = 0;
         uncleanCount = 0;
         lineFoundCount = 0;
-        halfWidthCount = 0;
+        widthChangeCount = 0;
     }
 
     // Count transitions into line visibility, retaining even a short observation.
@@ -720,12 +738,17 @@ namespace LineSensor8Pixel {
     //% blockId="linesensor8Pixel_junctionCount" block="antal udgreninger eller kryds"
     export function getJunctionCount(): number { return junctionCount; }
 
-    //% blockId="linesensor8Pixel_widthHalved" block="linjetykkelsen halveret?"
-    export function isLineWidthHalved(): boolean {
-        return halfWidthActive && widthMeasurementValid;
+    // Keep block IDs so existing blocks adopt the new two-sided meaning.
+    //% blockId="linesensor8Pixel_widthHalved" block="linjetykkelsen ændret?"
+    export function isLineWidthChanged(): boolean {
+        return widthChangeActive && widthMeasurementValid;
     }
-    //% blockId="linesensor8Pixel_halfWidthCount" block="antal halveringer af linjetykkelsen"
-    export function getLineWidthHalvedCount(): number { return halfWidthCount; }
+    //% blockId="linesensor8Pixel_halfWidthCount" block="antal ændringer i linjetykkelsen"
+    export function getLineWidthChangedCount(): number { return widthChangeCount; }
+
+    // Legacy API names: now deliberately mean a change in EITHER direction.
+    export function isLineWidthHalved(): boolean { return isLineWidthChanged(); }
+    export function getLineWidthHalvedCount(): number { return getLineWidthChangedCount(); }
     //% advanced=true blockId="linesensor8Pixel_currentWidth" block="linjetykkelse i sensorer"
     export function getLineWidthPixels(): number { return currentWidthPixels; }
     //% advanced=true blockId="linesensor8Pixel_learnedWidth" block="indlært linjetykkelse i sensorer"
