@@ -110,7 +110,6 @@ namespace LineSensor8Pixel {
     let referenceTimeS = 0.7;
     let previousTrackCentre = 3.5;
     let expectedWidth = 2;
-    let mainTrackSeen = false;
     let junctionCount = 0;
     let branchCount = 0;
     let lineLossCount = 0;
@@ -131,7 +130,6 @@ namespace LineSensor8Pixel {
     let activeBits = 0;
     let confirmSamples = 2;
     let clearSamples = 3;
-
 
     /*
         export enum Intensity {
@@ -365,7 +363,6 @@ namespace LineSensor8Pixel {
         haveLineReference = false;
         previousTrackCentre = 3.5;
         expectedWidth = 2;
-        mainTrackSeen = false;
         lineWasVisible = false;
         visibilityState = 0;
         visibilityCandidate = 0;
@@ -565,7 +562,6 @@ namespace LineSensor8Pixel {
                 haveBackgroundReference = true;
                 referenceReady = true;
                 expectedWidth += alpha * (count - expectedWidth);
-                mainTrackSeen = true;
             }
         }
     }
